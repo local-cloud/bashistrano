@@ -89,14 +89,17 @@ log() {
 
 ssh_cmd() {
   if [ 1 -ge "$BASHISTRANO_LOG_LEVEL" ]; then
-    echo "Running SSH command: " "$@" >&2
+    echo "Running SSH command: ${*}" >&2
   fi
   local cmd args
-  cmd=("$@")
+  cmd=$*
   eval set -- "$BASHISTRANO_SSH_ARGS"
   args=("$@")
-  # shellcheck disable=SC2086
-  ssh "${args[@]}" "$BASHISTRANO_TARGET_HOST" -- "${cmd[@]}" </dev/null
+  echo "$cmd" | ssh "${args[@]}" "$BASHISTRANO_TARGET_HOST" "/bin/bash -"
+}
+
+q() {
+  printf "%q" "$*"
 }
 
 check_dependencies() {
@@ -114,10 +117,10 @@ main() {
   export BASHISTRANO_LOG_LEVEL
   check_dependencies
   log "Creating directory structure for deployment"
-  ssh_cmd mkdir -p "${BASHISTRANO_DEST_DIR}/releases"
+  ssh_cmd mkdir -p "$(q "$BASHISTRANO_DEST_DIR")/releases"
   log "Getting last release number..."
   local current_release next_release all_releases
-  all_releases=$(ssh_cmd ls -1 "${BASHISTRANO_DEST_DIR}/releases" | sort -n)
+  all_releases=$(ssh_cmd ls -1 "$(q "$BASHISTRANO_DEST_DIR")/releases" | sort -n)
   current_release=$(echo "$all_releases" | tail -n 1)
   if echo "$current_release" | grep -qE '^[0-9]+$'; then
     next_release=$(("$current_release" + 1))
@@ -125,32 +128,30 @@ main() {
     next_release=1
   fi
   log "Deploying release number ${next_release}" 2
-  ssh_cmd mkdir "${BASHISTRANO_DEST_DIR}/releases/${next_release}"
+  ssh_cmd mkdir "$(q "$BASHISTRANO_DEST_DIR")/releases/$(q "$next_release")"
   if [ 1 -ge "$BASHISTRANO_LOG_LEVEL" ]; then
     BASHISTRANO_RSYNC_ARGS="${BASHISTRANO_RSYNC_ARGS} -v"
   fi
   eval set -- "$BASHISTRANO_RSYNC_ARGS"
-  rsync -a \
+  rsync --protect-args --archive \
     "$@" \
     "$BASHISTRANO_SOURCE_DIR"/ \
     "${BASHISTRANO_TARGET_HOST}:${BASHISTRANO_DEST_DIR}/releases/${next_release}"/
   if [ -n "$BASHISTRANO_POST_COPY" ]; then
     log "Running post copy hook" 2
-    eval set -- "$BASHISTRANO_POST_COPY"
     ssh_cmd \
-      cd "${BASHISTRANO_DEST_DIR}/releases/${next_release}" \
-      "&&" "$@"
+      cd "$(q "$BASHISTRANO_DEST_DIR")/releases/$(q "$next_release")" \
+      "&&" "$BASHISTRANO_POST_COPY"
   fi
   log "Linking directory with current version" 2
   ssh_cmd ln -Tsf \
-    "${BASHISTRANO_DEST_DIR}/releases/${next_release}" \
-    "${BASHISTRANO_DEST_DIR}/current"
+    "$(q "$BASHISTRANO_DEST_DIR")/releases/$(q "$next_release")" \
+    "$(q "$BASHISTRANO_DEST_DIR")/current"
   if [ -n "$BASHISTRANO_POST_DEPLOY" ]; then
     log "Running post deployment hook" 2
-    eval set -- "$BASHISTRANO_POST_DEPLOY"
     ssh_cmd \
-      cd "${BASHISTRANO_DEST_DIR}/releases/${next_release}" \
-      "&&" "$@"
+      cd "$(q "$BASHISTRANO_DEST_DIR")/releases/$(q "$next_release")" \
+      "&&" "$BASHISTRANO_POST_DEPLOY"
   fi
   local old_releases old_release
   old_releases=$(
@@ -162,7 +163,7 @@ main() {
   | while read -r old_release; do
     [ -z "$old_release" ] && continue
     log "Removing outdated release ${old_release}" 2
-    ssh_cmd rm -rf "${BASHISTRANO_DEST_DIR}/releases/${old_release}"
+    ssh_cmd rm -rf "$(q "$BASHISTRANO_DEST_DIR")/releases/$(q "$old_release")"
   done
   log "Finished deployment" 2
 }

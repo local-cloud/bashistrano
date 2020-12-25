@@ -20,7 +20,15 @@ teardown_file() {
 }
 
 ssh_cmd() {
-  ssh $SSH_ARGS tests@127.0.0.1 -- "$@"
+  local cmd args
+  cmd=$*
+  eval set -- "$BASHISTRANO_SSH_ARGS"
+  args=("$@")
+  echo "$cmd" | ssh "${args[@]}" "$BASHISTRANO_TARGET_HOST" "/bin/bash -"
+}
+
+q() {
+  printf "%q" "$*"
 }
 
 setup() {
@@ -30,19 +38,19 @@ setup() {
   export \
     BASHISTRANO="${BATS_TEST_DIRNAME}/../bashistrano.sh" \
     BASHISTRANO_TARGET_HOST="tests@127.0.0.1" \
-    BASHISTRANO_DEST_DIR="/home/tests/app" \
+    BASHISTRANO_DEST_DIR="/home/tests/test app" \
     BASHISTRANO_SOURCE_DIR="${BATS_TEST_DIRNAME}/app" \
     BASHISTRANO_RSYNC_ARGS="-e \"ssh ${SSH_ARGS}\"" \
     BASHISTRANO_SSH_ARGS=$SSH_ARGS \
     BASHISTRANO_KEEP=2 \
     BASHISTRANO_LOG_LEVEL=0
   unset BASHISTRANO_POST_COPY BASHISTRANO_POST_DEPLOY
-  ssh_cmd rm -rf "${BASHISTRANO_DEST_DIR}"
+  ssh_cmd rm -rf "$(q "$BASHISTRANO_DEST_DIR")"
 }
 
 @test "first deployment" {
   "$BASHISTRANO"
-  run ssh_cmd cat "${BASHISTRANO_DEST_DIR}/current/constant.txt"
+  run ssh_cmd cat "$(q "$BASHISTRANO_DEST_DIR")/current/constant.txt"
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "constant file" ] 
 }
@@ -50,13 +58,13 @@ setup() {
 @test "changed file" {
   echo "run 1" > "${BATS_TEST_DIRNAME}/app/changing.txt"
   "$BASHISTRANO"
-  run ssh_cmd cat "${BASHISTRANO_DEST_DIR}/current/changing.txt"
+  run ssh_cmd cat "$(q "$BASHISTRANO_DEST_DIR")/current/changing.txt"
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "run 1" ]
 
   echo "run 2" > "${BATS_TEST_DIRNAME}/app/changing.txt"
   "$BASHISTRANO"
-  run ssh_cmd cat "${BASHISTRANO_DEST_DIR}/current/changing.txt"
+  run ssh_cmd cat "$(q "$BASHISTRANO_DEST_DIR")/current/changing.txt"
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "run 2" ]
 }
@@ -67,29 +75,29 @@ setup() {
     "$BASHISTRANO"
   done
 
-  run ssh_cmd ls -1 "${BASHISTRANO_DEST_DIR}/releases"
+  run ssh_cmd ls -1 "$(q "$BASHISTRANO_DEST_DIR")/releases"
   [ "$status" -eq 0 ]
   [ "$(echo "$output" | wc -l)" -eq 2 ]
 
-  run ssh_cmd stat "${BASHISTRANO_DEST_DIR}/releases/1"
+  run ssh_cmd stat "$(q "$BASHISTRANO_DEST_DIR")/releases/1"
   [ "$status" -ne 0 ]
 
-  run ssh_cmd readlink "${BASHISTRANO_DEST_DIR}/current"
+  run ssh_cmd readlink "$(q "$BASHISTRANO_DEST_DIR")/current"
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "${BASHISTRANO_DEST_DIR}/releases/3" ]
 
-  run ssh_cmd cat "${BASHISTRANO_DEST_DIR}/current/changing.txt"
+  run ssh_cmd cat "$(q "$BASHISTRANO_DEST_DIR")/current/changing.txt"
   [ "$status" -eq 0 ]
   [ "${lines[0]}" = "run 3" ]
 }
 
 @test "post hooks" {
   export \
-    BASHISTRANO_POST_COPY="echo copy > post_hooks" \
-    BASHISTRANO_POST_DEPLOY="echo deploy >> post_hooks"
+    BASHISTRANO_POST_COPY="echo \"action copy\" > post_hooks" \
+    BASHISTRANO_POST_DEPLOY="echo \"action deploy\" >> post_hooks"
   "$BASHISTRANO"
-  run ssh_cmd cat "${BASHISTRANO_DEST_DIR}/current/post_hooks"
+  run ssh_cmd cat "$(q "$BASHISTRANO_DEST_DIR")/current/post_hooks"
   [ "$status" -eq 0 ]
-  [ "${lines[0]}" = "copy" ]
-  [ "${lines[1]}" = "deploy" ]
+  [ "${lines[0]}" = "action copy" ]
+  [ "${lines[1]}" = "action deploy" ]
 }
