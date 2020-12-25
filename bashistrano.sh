@@ -88,9 +88,7 @@ log() {
 }
 
 ssh_cmd() {
-  if [ 1 -ge "$BASHISTRANO_LOG_LEVEL" ]; then
-    echo "Running SSH command: ${*}" >&2
-  fi
+  log "Running SSH command: ${*}" 1 stderr
   local cmd args
   cmd=$*
   eval set -- "$BASHISTRANO_SSH_ARGS"
